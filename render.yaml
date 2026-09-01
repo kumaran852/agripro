@@ -1,0 +1,68 @@
+# Render Blueprint — one-click deploy all 3 services + DB
+# Go to https://dashboard.render.com/blueprints → upload this file.
+# Or paste it into a connected GitHub repo's render.yaml at repo root.
+
+services:
+  - type: web
+    name: farmdirect-ai
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    rootDir: farmdirect-ai
+    autoDeploy: true
+
+  - type: web
+    name: farmdirect-api
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: "npm install && npm run seed 2>/dev/null || true"
+    startCommand: "node server.js"
+    rootDir: farmdirect-api
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_AI_BASE_URL
+        fromService:
+          type: web
+          name: farmdirect-ai
+          property: host
+        # Render's internal service URL rewrites with /internal/ai prefix below via absolute URL override:
+      - key: PYTHON_AI_BASE_URL
+        value: https://farmdirect-ai.onrender.com/internal/ai
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGO_URI
+        fromDatabase:
+          name: farmdirect-db
+          property: connectionString
+
+  - type: static
+    name: farmdirect-web
+    env: static
+    region: singapore
+    buildCommand: "npm install && npm run build"
+    publishDir: dist
+    rootDir: farmdirect-web
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          type: web
+          name: farmdirect-api
+          property: host
+
+databases:
+  - name: farmdirect-db
+    region: singapore
+    plan: free
+    postgresMajorVersion: 16  # MongoDB on Render is via "MongoDB Atlas on Render"; see docs for Atlas integration.
+    # Note: Render's native free DB is Postgres. For MongoDB we use Atlas.
+    # Set MONGO_URI manually to an Atlas URI if you skip the native DB:
+    # mongodb+srv://user:pwd@cluster0.mongodb.net/farmdirect_mvp?retryWrites=true&w=majority
